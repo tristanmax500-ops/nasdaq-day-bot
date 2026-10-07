@@ -379,6 +379,7 @@ class Bot:
                     last_save = time.monotonic()
                 if clock["is_open"]:
                     self.bar_cycle()
+                    cloud.push_status(self.log)
                     nxt = now.floor("5min") + pd.Timedelta(minutes=5, seconds=10)
                     flat_t = pd.Timestamp(clock["next_close"]).tz_convert("UTC") - pd.Timedelta(minutes=flat_m) \
                         + pd.Timedelta(seconds=5)

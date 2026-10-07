@@ -34,6 +34,7 @@ def save_state(log=print, reason="checkpoint"):
     """Snapshot brain.db safely (SQLite backup) and let the workflow script encrypt + push it."""
     if not on_github():
         return False
+    push_status(log, force=True)
     src = DATA_DIR / "brain.db"
     if not src.exists():
         return False
@@ -55,6 +56,25 @@ def save_state(log=print, reason="checkpoint"):
         return True
     except Exception as e:
         log(f"  ! could not save memory to GitHub: {e}")
+        return False
+
+
+_last_status = [0.0]
+
+
+def push_status(log=print, force=False):
+    """Publish the dashboard status file (small, separate 'status' branch) at most every 4 min."""
+    if not on_github() or (not force and time.time() - _last_status[0] < 240):
+        return False
+    _last_status[0] = time.time()
+    try:
+        r = subprocess.run(["bash", str(ROOT / ".github" / "scripts" / "push_status.sh")], cwd=str(ROOT),
+                           capture_output=True, text=True, timeout=90)
+        if r.returncode != 0:
+            log(f"  ! dashboard status not published: {(r.stderr or r.stdout)[-200:]}")
+        return r.returncode == 0
+    except Exception as e:
+        log(f"  ! dashboard status not published: {e}")
         return False
 
 
