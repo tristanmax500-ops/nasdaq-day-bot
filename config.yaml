@@ -1,0 +1,102 @@
+# =====================================================================
+#  NASDAQ DAY-TRADING BOT - SETTINGS
+#  Lines starting with # are comments. If you break this file, delete it
+#  and the safe defaults are used.
+# =====================================================================
+
+account:
+  # Free Alpaca account -> https://alpaca.markets  (Paper Trading -> API Keys)
+  # Gives the bot: 5-minute price history, live prices, news, and a paper account.
+  alpaca_key: ""
+  alpaca_secret: ""
+  # Free FRED key -> https://fred.stlouisfed.org/docs/api/api_key.html
+  # Gives the bot: dates of Fed meetings, CPI, jobs reports, PPI (past + upcoming).
+  fred_api_key: ""
+
+market:
+  # What the bot trades. Switch with USE_QQQ_ONLY.bat or USE_16_STOCKS.bat (bot closed first).
+  # In QQQ-only mode the 15 big Nasdaq companies are still read for news mood and earnings dates.
+  symbols: [QQQ]
+  benchmark: QQQ
+  # candle sizes the AI may choose from (built from 5-minute data)
+  timeframes: [5Min, 15Min]
+  history_start: "2021-01-01"
+  allow_short: true           # may also short (sell first, buy back lower) - stops above, targets below
+  # big companies whose earnings move QQQ itself
+  qqq_heavyweights: [NVDA, AAPL, MSFT, AMZN, META, GOOGL]
+
+day_trading:
+  no_entries_last_minutes: 20      # no new trades in the last 20 minutes of the day
+  flatten_minutes_before_close: 5  # everything is closed 5 minutes before the bell
+  risk_per_trade_pct: 0.5          # each trade risks 0.5% of the account if the stop is hit
+  max_position_pct: 100            # biggest single position, % of the account
+  max_open_positions: 6
+  max_losses_per_symbol_day: 2     # after 2 losing trades in a stock, stop trading it that day
+  max_daily_loss_pct: 2.0          # account down 2% today -> close everything, stop for the day
+  fomc_blackout: true              # no new trades 13:45-14:30 ET on Fed decision days
+
+costs:
+  slippage_bps: 1     # per buy and per sell (0.01%; QQQ only - 2 for 16 stocks). The bot measures real slippage
+  commission_bps: 0   # from your Alpaca fills and raises this if reality is worse.
+
+discovery:
+  population: 300
+  default_minutes: 45
+  workers: 0            # CPU cores to use (0 = automatic: all cores but one, if there's enough memory)
+  max_workers: 12
+  memory_per_worker_gb: 1.2
+  early_exit: true      # skip the 2nd half of a test when the 1st half already rules a strategy out (same results, faster)
+  holdout_fraction: 0.25
+  folds: 4
+  min_trades: 150
+  finalists: 30
+  holdout_slots: 5
+  restart_after_gens: 40      # search stuck on one idea this long -> restart with fresh ideas (keeps the best)
+  stop_when_stuck_minutes: 20 # no new finalist for this long -> finish the search early (0 = never)
+  hof_per_family: 6           # max near-identical variants of one idea kept for the final checks
+
+validation:
+  min_folds_profitable: 3
+  min_symbols_profitable: 0.55
+  dsr_min: 0.95
+  robustness_tests: 20
+  robustness_min_profitable: 0.70
+  random_entry_pctile: 0.95
+  min_alpha_t: 1.0
+  holdout_min_sharpe: 0.5
+  holdout_min_ratio: 0.0       # 0 = no 'at least half the past Sharpe' rule (it punished the best strategies)
+  holdout_min_trades: 30       # the exam needs at least this many trades on the hidden data
+  probation: true              # pass everything except the luck test -> paper-trade on probation
+  probation_size: 0.25         #   ...at this fraction of normal size
+  probation_trades: 40         #   ...until this many live paper trades are clearly positive (else it is retired)
+  holdout_random_pctile: 0.90
+  min_profit_factor: 1.15     # gross wins / gross losses after costs
+
+paper:
+  broker: alpaca        # alpaca = real paper orders with TP/SL | sim = simulation only
+  target_champions: 3   # strategies trading at once
+  max_challengers: 3    # improved versions being tested against them
+
+healing:
+  min_trades_to_judge: 30
+  degrade_pvalue: 0.05
+  drawdown_break_mult: 1.5
+  loss_streak_trigger: 6      # this many losses in a row -> start writing a fix immediately
+  improve_every_trades: 40    # also try to evolve a better version every 40 trades
+  repair_trials: 3000
+  promote_min_trades: 25
+
+news:
+  enabled: true
+  history_start: "2021-01-01"
+
+data:
+  plan: free            # free = Alpaca Basic plan | paid = Algo Trader Plus (real-time SIP)
+
+auto:
+  discovery_minutes_after_close: 60
+
+dashboard:
+  # The bot keeps a live card on your Projects Dashboard up to date by writing
+  # nasdaq_bot_status.js into this folder. Leave empty ("") to turn it off.
+  status_folder: "~/Documents/Projects Dashboard"

@@ -1,0 +1,102 @@
+name: Nasdaq bot - trading session
+
+# Runs the bot in the cloud so your PC can be off. Times are UTC, Monday-Friday.
+# 12:30 / 13:00 / 13:30 start the session (GitHub's timer can be late, so there are backups);
+# the later ones are safety nets in case a hand-over ever fails. A run with nothing to do
+# exits in about a minute.
+on:
+  schedule:
+    - cron: "30 12 * * 1-5"
+    - cron: "0 13 * * 1-5"
+    - cron: "30 13 * * 1-5"
+    - cron: "30 16 * * 1-5"
+    - cron: "30 18 * * 1-5"
+    - cron: "30 20 * * 1-5"
+    - cron: "15 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why (manual / continuation)"
+        required: false
+        default: "manual"
+
+# Only ONE bot at a time on your Alpaca account - later runs wait for the running one.
+concurrency:
+  group: trader
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # save the encrypted memory to the 'state' branch
+  actions: write    # start the next job before GitHub's 6-hour limit
+
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+      ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      STATE_KEY: ${{ secrets.STATE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NASDAQ_WORKFLOW_FILE: trade.yml
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets are set
+        run: |
+          for s in ALPACA_KEY ALPACA_SECRET STATE_KEY; do
+            if [ -z "${!s}" ]; then echo "::error::Secret $s is not set (Settings > Secrets and variables > Actions)"; exit 1; fi
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt numba
+
+      - name: Status folder
+        run: echo "NASDAQ_STATUS_DIR=$RUNNER_TEMP/status" >> "$GITHUB_ENV"
+
+      - name: Restore price/news cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/cache
+            data/news.db
+          key: market-data-${{ github.run_id }}
+          restore-keys: market-data-
+
+      - name: Restore the bot's memory
+        run: bash .github/scripts/restore_state.sh
+
+      - name: Trade the session
+        run: python run.py session
+
+      - name: Save the bot's memory (always, even after an error)
+        if: always()
+        run: |
+          if [ -f data/brain.db ]; then
+            python -c "import sqlite3; s=sqlite3.connect('data/brain.db'); d=sqlite3.connect('$RUNNER_TEMP/final.db'); s.backup(d)"
+            bash .github/scripts/save_state.sh "$RUNNER_TEMP/final.db" "end of job"
+          fi
+
+      - name: Save price/news cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/cache
+            data/news.db
+          key: market-data-${{ github.run_id }}
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-log-${{ github.run_id }}
+          path: logs/bot.log
+          retention-days: 14

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+data/
+logs/
+reports/
+tradingview/
+venv*/
+.venv/
+backup_*/
+use_arm64.txt
+STATE_KEY.txt
+*.db
