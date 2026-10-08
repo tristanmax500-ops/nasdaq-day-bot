@@ -407,7 +407,7 @@ class Bot:
                     return finish("day done")
                 # before the open: wait for it if it's today and soon, otherwise nothing to do
                 wait = (nopen - now).total_seconds() / 60
-                if wait > 150:
+                if wait > 600:      # GitHub's timer can start jobs hours late, so jobs start early and wait
                     self.feed("market closed", f"next open {nopen.tz_convert(NY):%a %b %d %H:%M} ET")
                     self.log(f"No session soon (next open {nopen.tz_convert(NY):%a %H:%M} ET) - nothing to do.")
                     return finish("no session")

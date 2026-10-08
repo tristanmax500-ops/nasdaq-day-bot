@@ -32,7 +32,7 @@ DEFAULTS = {
     },
     "costs": {"slippage_bps": 2, "commission_bps": 0},
     "discovery": {"population": 300, "default_minutes": 45, "workers": 0, "holdout_fraction": 0.25,
-                  "folds": 4, "min_trades": 150, "finalists": 30, "holdout_slots": 5},
+                  "folds": 4, "min_trades": 150, "min_trades_per_day": 0.0, "finalists": 30, "holdout_slots": 5},
     "validation": {
         "min_folds_profitable": 3, "min_symbols_profitable": 0.55, "dsr_min": 0.95,
         "robustness_tests": 20, "robustness_min_profitable": 0.70, "random_entry_pctile": 0.95,

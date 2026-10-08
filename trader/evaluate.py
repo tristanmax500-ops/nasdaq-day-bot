@@ -38,6 +38,17 @@ class EvalContext:
             self.split[tf] = (self.day_to_bar(p, d0), self.day_to_bar(p, d_end), p.T)
         self.folds = int(cfg["discovery"]["folds"])
         self.min_trades = int(cfg["discovery"]["min_trades"])
+        # day trading: also demand a minimum number of trades per trading day (research + exam)
+        tpd = float(cfg["discovery"].get("min_trades_per_day", 0) or 0)
+        self.min_trades_holdout = 0
+        if tpd > 0 and panels:
+            tf0 = next(iter(panels))
+            p0 = panels[tf0]
+            s0, s1, sT = self.split[tf0]
+            nd_r = int(p0.day[s1 - 1] - p0.day[s0] + 1) if s1 > s0 else 0
+            nd_h = int(p0.day[sT - 1] - p0.day[s1] + 1) if sT > s1 else 0
+            self.min_trades = max(self.min_trades, int(np.ceil(tpd * nd_r)))
+            self.min_trades_holdout = int(np.ceil(0.75 * tpd * nd_h))   # a little slack for a quieter year
         self.recent_start = {}
         self._bench = {}
         self.min_folds = int(cfg["validation"]["min_folds_profitable"])
@@ -274,7 +285,7 @@ def gauntlet(ctx, g, n_trials, sr_var, rng, start=None, end=None, use_holdout=Tr
         need = max(v["holdout_min_sharpe"], v["holdout_min_ratio"] * rep["research"]["sharpe"])
         rnd_h = random_entry_test(ctx, g, end, T, rng)
         pct_h = float((rnd_h < hs).mean())
-        min_h = int(v.get("holdout_min_trades", 30))
+        min_h = max(int(v.get("holdout_min_trades", 30)), int(getattr(ctx, "min_trades_holdout", 0)))
         if not check("holdout_exam", hs >= need and rep["holdout"]["total_return"] > 0
                      and pct_h >= v["holdout_random_pctile"] and len(trades_h) >= min_h,
                      f"Sharpe {hs:.2f} (needed {need:.2f}) on {len(daily_h)} never-seen days, "

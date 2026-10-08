@@ -1,11 +1,16 @@
 name: Nasdaq bot - trading session
 
 # Runs the bot in the cloud so your PC can be off. Times are UTC, Monday-Friday.
-# 12:30 / 13:00 / 13:30 start the session (GitHub's timer can be late, so there are backups);
+# GitHub's timer can fire hours late, so runs start from 05:30 UTC and wait for the 13:30 UTC open
+# (handing over to a fresh job every 5 h);
 # the later ones are safety nets in case a hand-over ever fails. A run with nothing to do
 # exits in about a minute.
 on:
   schedule:
+    - cron: "30 5 * * 1-5"
+    - cron: "30 7 * * 1-5"
+    - cron: "30 9 * * 1-5"
+    - cron: "0 11 * * 1-5"
     - cron: "30 12 * * 1-5"
     - cron: "0 13 * * 1-5"
     - cron: "30 13 * * 1-5"

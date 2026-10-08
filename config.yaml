@@ -49,6 +49,7 @@ discovery:
   holdout_fraction: 0.25
   folds: 4
   min_trades: 150
+  min_trades_per_day: 1.0     # day trading: on average at least 1 trade per trading day (research AND exam)
   finalists: 30
   holdout_slots: 5
   restart_after_gens: 40      # search stuck on one idea this long -> restart with fresh ideas (keeps the best)
