@@ -513,6 +513,94 @@ def _thin(curve, n):
     return [curve[i] for i in idx]
 
 
+def template_round(engine, cfg, registry, rng, log=print):
+    """Test the known intraday edges (trader/templates.py) through the same checks and exam.
+    Returns (winners, run_info, top_genomes). Their luck test counts only the template variants
+    ever tried (a few thousand), not the GA's millions - they are fixed ideas, not a fishing trip."""
+    from .templates import generate
+    d = cfg["discovery"]
+    G = generate(list(engine.ctx.books), allow_short=cfg["market"]["allow_short"])
+    G = [g for g in G if g["tf"] in engine.ctx.books]
+    known = registry.known_keys()
+    scored = engine.score_many(G)
+    ranked = sorted([(float(r["fitness"]), g, r) for g, r in zip(G, scored)], key=lambda x: -x[0])
+    n_var = max(int(registry.meta("template_variants", 0) or 0), len(G))
+    registry.set_meta("template_variants", n_var)
+    sr_var = registry.sr_variance()
+    finalists = pick_diverse(engine.ctx, [x for x in ranked if key(x[1]) not in known and x[0] > 0],
+                             int(d.get("template_finalists", 30)), min_trades=engine.ctx.min_trades,
+                             max_corr=float(d.get("finalist_max_corr", 0.6)))
+    prob_ok = bool(cfg["validation"].get("probation", True))
+    log(f"  known-edge templates: {len(G):,} variants of {len(set(g['template'] for g in G))} setups, "
+        f"{sum(1 for x in ranked if x[0] > 0):,} profitable on past data, {len(finalists)} finalists")
+    passed, fails = [], {}
+    for fit, g, r in finalists:
+        ok, rep = gauntlet(engine.ctx, g, n_var, sr_var, rng, use_holdout=False, probation_ok=prob_ok)
+        if ok:
+            passed.append((fit, g, rep))
+        else:
+            failed = [k for k, v in rep["checks"].items() if not v["pass"]]
+            fails[failed[0] if failed else "?"] = fails.get(failed[0] if failed else "?", 0) + 1
+    if fails:
+        log("  eliminated: " + ", ".join(f"{k}={v}" for k, v in sorted(fails.items(), key=lambda x: -x[1])))
+    exam, seen = [], set()
+    for fit, g, rep in passed:                         # one exam place per setup / candle size / side
+        k = (g.get("template"), g["tf"], g["dir"])
+        if k not in seen:
+            seen.add(k)
+            exam.append((fit, g, rep))
+    log(f"  {len(exam)} template setups take the one-time holdout exam")
+    winners, exam_log = [], []
+    for fit, g, _ in exam[: int(d.get("template_exam_slots", 8))]:
+        ok, rep = gauntlet(engine.ctx, g, n_var, sr_var, rng, use_holdout=True, probation_ok=prob_ok)
+        h = rep.get("holdout", {})
+        log(f"   {('PASS (probation)' if rep.get('probation') else 'PASS') if ok else 'fail'}  {g['template']} "
+            f"{g['tf']} {g['dir']} | research Sharpe {rep['research']['sharpe']:.2f}, "
+            f"{rep['research'].get('trades_per_day', 0)} trades/day | holdout Sharpe {h.get('sharpe', 0):.2f}, "
+            f"return {h.get('total_return', 0):+.1%}, {h.get('trades', 0)} trades")
+        exam_log.append({"pass": bool(ok), "probation": bool(ok and rep.get("probation")), "template": g["template"],
+                         "research_sharpe": rep["research"]["sharpe"], "pf": rep["research"]["profit_factor"],
+                         "holdout_sharpe": h.get("sharpe", 0), "holdout_return": h.get("total_return", 0),
+                         "holdout_trades": h.get("trades", 0), "tf": g["tf"]})
+        if ok:
+            winners.append((fit, g, rep))
+    info = {"template_variants": len(G), "template_finalists": len(finalists), "template_survived": len(passed),
+            "template_exam": exam_log}
+    top = [_copy_g(g) for f_, g, _r in ranked[:60] if f_ > 0]
+    return winners, info, top
+
+
+def _copy_g(g):
+    h = dict(g)
+    h["entry"] = [dict(c) for c in g["entry"]]
+    if g.get("exit"):
+        h["exit"] = dict(g["exit"])
+    h.pop("template", None)
+    return h
+
+
+def _register(registry, winners, run, log, pd, quiet=False):
+    """Save template winners (and, without a GA round, finish the run record)."""
+    total = registry.meta("total_trials", 0)
+    ids = []
+    for fit, g, rep in winners:
+        prob = bool(rep.get("probation"))
+        sid = registry.add_strategy(g, rep, "reserve", fitness=fit,
+                                    note=f"known edge: {g.get('template')}" + (" (probation)" if prob else ""))
+        registry.event(sid, "discovered", f"Known-edge setup '{g.get('template')}' passed "
+                       + ("every check except the luck test - starts on PROBATION (1/4 size). " if prob else "all checks. ")
+                       + describe(g).replace("\n", " | "))
+        ids.append(sid)
+    if run is not None:
+        log(f"Discovery finished: {len(ids)} new validated strategies.")
+        run.update(validated=len(ids), finished=pd.Timestamp.now(tz="UTC").isoformat())
+        try:
+            registry.add_search_run(run)
+        except Exception:
+            pass
+    return ids
+
+
 def discover(cfg, panels, registry, minutes=None, max_trials=None, seed=None, log=print, workers=None,
              extras=None, fomc_dates=(), cost=None):
     """Full discovery run: evolve -> gauntlet -> holdout exam -> register survivors."""
@@ -536,6 +624,19 @@ def discover(cfg, panels, registry, minutes=None, max_trials=None, seed=None, lo
     def save_ck(state):
         _save_checkpoint(dict(state, symbols=syms, tfs=list(panels), saved=time.time()))
 
+    mode = str(d.get("mode", "templates+evolve"))
+    t_winners, t_top = [], []
+    if "templates" in mode:
+        try:
+            t_winners, t_info, t_top = template_round(engine, cfg, registry, rng, log)
+            run.update(t_info)
+        except Exception as e:
+            log(f"  ! template round failed: {e}")
+    if "evolve" not in mode:
+        engine.close()
+        return _register(registry, t_winners, run, log, pd)
+    if t_top:
+        seeds = (seeds or []) + t_top[:20]       # the GA also starts next to the known edges
     try:
         ranked, trials, srs, fams = evolve(engine, rng, minutes=minutes, max_trials=max_trials,
                                            timeframes=list(panels), allow_short=cfg["market"]["allow_short"],
@@ -610,7 +711,7 @@ def discover(cfg, panels, registry, minutes=None, max_trials=None, seed=None, lo
                                 "tf": g["tf"]})
             if ok:
                 winners.append((fit, g, rep))
-        new_ids = []
+        new_ids = _register(registry, t_winners, None, log, pd, quiet=True)
         for fit, g, rep in winners:
             prob = bool(rep.get("probation"))
             sid = registry.add_strategy(g, rep, "reserve", fitness=fit, note="discovered (probation)" if prob else "discovered")
