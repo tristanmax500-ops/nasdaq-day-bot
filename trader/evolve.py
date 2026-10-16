@@ -625,11 +625,17 @@ def discover(cfg, panels, registry, minutes=None, max_trials=None, seed=None, lo
         _save_checkpoint(dict(state, symbols=syms, tfs=list(panels), saved=time.time()))
 
     mode = str(d.get("mode", "templates+evolve"))
-    t_winners, t_top = [], []
+    t_winners, t_top, t_ids = [], [], []
     if "templates" in mode:
         try:
             t_winners, t_info, t_top = template_round(engine, cfg, registry, rng, log)
             run.update(t_info)
+            if "evolve" in mode:      # save them right away, so stopping the long search can't lose them
+                t_ids = _register(registry, t_winners, None, log, pd)
+                t_winners = []
+                if t_ids:
+                    from .healer import fill_slots
+                    fill_slots(cfg, registry, log)
         except Exception as e:
             log(f"  ! template round failed: {e}")
     if "evolve" not in mode:
@@ -711,7 +717,7 @@ def discover(cfg, panels, registry, minutes=None, max_trials=None, seed=None, lo
                                 "tf": g["tf"]})
             if ok:
                 winners.append((fit, g, rep))
-        new_ids = _register(registry, t_winners, None, log, pd, quiet=True)
+        new_ids = list(t_ids)
         for fit, g, rep in winners:
             prob = bool(rep.get("probation"))
             sid = registry.add_strategy(g, rep, "reserve", fitness=fit, note="discovered (probation)" if prob else "discovered")
